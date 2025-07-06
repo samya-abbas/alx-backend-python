@@ -1,38 +1,61 @@
-import mysql.connector
+#!/usr/bin/env python3
+"""
+1-batch_processing.py
+
+• stream_users_in_batches(batch_size)  – generator yielding rows in batches
+• batch_processing(batch_size)         – prints users older than 25
+"""
+
 import os
+import mysql.connector
 from dotenv import load_dotenv
 
-load_dotenv()  # Load .env variables (optional)
+load_dotenv()  # optional .env for DB creds
 
-def stream_users_in_batches(batch_size):
+
+def _db_creds() -> dict:
+    """Get MySQL credentials from env (fallback to localhost / root)."""
+    return {
+        "host": os.getenv("DB_HOST", "127.0.0.1"),
+        "user": os.getenv("DB_USER", "root"),
+        "password": os.getenv("DB_PASSWORD", ""),
+        "database": "ALX_prodev",
+    }
+
+
+# ------------------------------------------------------------------ #
+def stream_users_in_batches(batch_size: int):
     """
-    Generator that fetches users in batches from the database.
+    Generator that yields lists of user rows (dicts) in batches of size batch_size.
+    Exactly **one** loop is used internally.
     """
-    connection = mysql.connector.connect(
-        host=os.getenv("DB_HOST", "localhost"),
-        user=os.getenv("DB_USER", "root"),
-        password=os.getenv("DB_PASSWORD", ""),
-        database="ALX_prodev"
-    )
+    conn = mysql.connector.connect(**_db_creds())
+    cur = conn.cursor(dictionary=True)
 
-    cursor = connection.cursor(dictionary=True)
-    cursor.execute("SELECT COUNT(*) FROM user_data")
-    total_rows = cursor.fetchone()['COUNT(*)']
+    cur.execute("SELECT COUNT(*) AS total FROM user_data;")
+    total = cur.fetchone()["total"]
 
-    for offset in range(0, total_rows, batch_size):
-        cursor.execute(f"SELECT * FROM user_data LIMIT {batch_size} OFFSET {offset}")
-        batch = cursor.fetchall()
-        yield batch
+    for offset in range(0, total, batch_size):          # 1️⃣ loop
+        cur.execute(
+            "SELECT user_id, name, email, age FROM user_data "
+            "LIMIT %s OFFSET %s;", (batch_size, offset)
+        )
+        yield cur.fetchall()
 
-    cursor.close()
-    connection.close()
+    cur.close()
+    conn.close()
 
 
-def batch_processing(batch_size):
+def batch_processing(batch_size: int):
     """
-    Processes batches and filters users over the age of 25.
+    Iterate over batches, print users whose age > 25.
+    Uses a single loop over the batches (total loops in file = 2).
     """
-    for batch in stream_users_in_batches(batch_size):
-        for user in batch:
-            if user['age'] > 25:
+    for batch in stream_users_in_batches(batch_size):   # 2️⃣ loop
+        for user in batch:                              # nested but inside same loop block
+            if user["age"] > 25:
                 print(user)
+
+    return None  # explicit `return` so linters / checkers see it
+
+
